@@ -4227,8 +4227,12 @@ static void print_fcn_arg(RCore *core, const char *type, const char *name,
 	if (on_stack == 1 || show_typename) {
 		r_cons_printf ("%s", type);
 	}
-	r_core_cmdf (core, "pf%s %s %s @ 0x%08" PFMT64x,
-		(on_stack == 1) ? "*" : (show_typename?"": "q"), fmt, name, addr);
+	if (addr != UT32_MAX && addr != UT64_MAX  && addr != 0) {
+		r_core_cmdf (core, "pf%s %s %s @ 0x%08" PFMT64x,
+				(on_stack == 1) ? "*" : (show_typename?"": "q"), fmt, name, addr);
+	} else {
+		r_cons_printf ("-1");
+	}
 	r_cons_chop ();
 	r_cons_chop ();
 }

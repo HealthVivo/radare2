@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2018 - pancake & Skia */
+/* radare - LGPL - Copyright 2007-2019 - pancake & Skia */
 
 #include "r_cons.h"
 #include "r_util.h"
@@ -32,7 +32,6 @@
 static float updateAddr(const ut8 *buf, int len, int endian, ut64 *addr, ut64 *addr64) {
 	float f = 0.0;
 	// assert sizeof (float) == sizeof (ut32))
-	ut32 tmpaddr;
 	// XXX 999 is used as an implicit buffer size, we should pass the buffer size to every function too, otherwise this code will give us some problems
 	if (len >= THRESHOLD - 7 && len < THRESHOLD) {
 		len = len + THRESHOLD; // get the real len to avoid oob
@@ -43,7 +42,7 @@ static float updateAddr(const ut8 *buf, int len, int endian, ut64 *addr, ut64 *a
 		r_mem_swaporcopy ((ut8*)&f, buf, sizeof (float), endian);
 	}
 	if (addr && len > 3) {
-		tmpaddr = r_read_ble32 (buf, endian);
+		ut32 tmpaddr = r_read_ble32 (buf, endian);
 		*addr = (ut64)tmpaddr;
 	}
 	if (addr64 && len > 7) {
@@ -84,7 +83,7 @@ static void r_print_format_quadword(const RPrint* p, int endian, int mode,
 				seeki + ((elem >= 0)? elem * 2: 0));
 		}
 		if (size == -1) {
-			if ((st64)addr64 < 0 && (st64)addr64 > -4096) {
+			if (addr64 == UT32_MAX || ((st64)addr64 < 0 && (st64)addr64 > -4096)) {
 				p->cb_printf ("%d", (int)(addr64));
 			} else {
 				p->cb_printf ("0x%016"PFMT64x, addr64);
@@ -114,7 +113,7 @@ static void r_print_format_quadword(const RPrint* p, int endian, int mode,
 			}
 		}
 	} else if (MUSTSEEJSON) {
-		if (size==-1) {
+		if (size == -1) {
 			p->cb_printf ("%"PFMT64d, addr64);
 		} else {
 			p->cb_printf ("[ ");
@@ -424,9 +423,8 @@ static int r_print_format_string(const RPrint* p, ut64 seeki, ut64 addr64, ut64 
 		eprintf ("(cannot read memory)\n");
 		return -1;
 	}
-	int res = (is64 == 1)
-		? p->iob.read_at (p->iob.io, addr64, buffer, sizeof (buffer) - 8)
-		: p->iob.read_at (p->iob.io, (ut64)addr, buffer, sizeof (buffer) - 8);
+	const ut64 at = (is64 == 1)? addr64: (ut64)addr;
+	int res = p->iob.read_at (p->iob.io, at, buffer, sizeof (buffer) - 8);
 	if (MUSTSEEJSON) {
 		char *encstr = r_str_utf16_encode ((const char *)buffer, -1);
 		if (encstr) {
@@ -440,8 +438,8 @@ static int r_print_format_string(const RPrint* p, ut64 seeki, ut64 addr64, ut64 
 		if (!SEEVALUE) {
 			p->cb_printf ("0x%08" PFMT64x " -> 0x%08" PFMT64x " ", seeki, addr);
 		}
-		if (res && buffer[0] != 0xff && buffer[1] != 0xff) {
-			p->cb_printf ("%s", buffer);
+		if (res > 0 && buffer[0] != 0xff && buffer[1] != 0xff) {
+			p->cb_printf ("\"%s\"", buffer);
 		}
 	}
 	return 0;
@@ -1145,13 +1143,17 @@ static void r_print_format_word(const RPrint* p, int endian, int mode,
 
 static void r_print_format_nulltermstring(const RPrint* p, const int len, int endian, int mode,
 		const char* setval, ut64 seeki, ut8* buf, int i, int size) {
+	if (!p->iob.is_valid_offset (p->iob.io, seeki, false)) {
+		p->cb_printf ("-1");
+		return;
+	}
 	if (MUSTSET) {
-		int buflen = strlen ((const char *)buf+seeki), vallen = strlen(setval);
-		char *newstring, *ons;
-		newstring = ons = strdup(setval);
-		if ((newstring[0] == '\"' && newstring[vallen-1] == '\"')
-				|| (newstring[0] == '\'' && newstring[vallen-1] == '\'')) {
-			newstring[vallen-1] = '\0';
+		int buflen = strlen ((const char *)buf + seeki);
+		int vallen = strlen (setval);
+		char *ons, *newstring = ons = strdup (setval);
+		if ((newstring[0] == '\"' && newstring[vallen - 1] == '\"')
+				|| (newstring[0] == '\'' && newstring[vallen - 1] == '\'')) {
+			newstring[vallen - 1] = '\0';
 			newstring++;
 			vallen -= 2;
 		}
@@ -1168,7 +1170,7 @@ static void r_print_format_nulltermstring(const RPrint* p, const int len, int en
 			}
 		}
 		p->cb_printf (" @ 0x%08"PFMT64x"\n", seeki);
-		free(ons);
+		free (ons);
 	} else if (mode & R_PRINT_DOT) {
 		int j = i;
 		p->cb_printf ("\\\"", seeki);
@@ -1989,14 +1991,13 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					}
 				}
 			}
-
 		feed_me_again:
 			switch (isptr) {
 			case PTRSEEK:
 				{
 				nexti = i + (p->bits / 8);
 				i = 0;
-				if (tmp == '?' ) {
+				if (tmp == '?') {
 					seeki = addr;
 				}
 				memset (buf, '\0', len);
@@ -2017,7 +2018,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 						goto beach;
 					}
 				} else {
-					eprintf ("(SEGFAULT: cannot read memory at 0x%08"PFMT64x", Block: %s, blocksize: 0x%x)\n",
+					eprintf ("(SEGFAULT: cannot read at 0x%08"PFMT64x", block: %s, blocksize: 0x%x)\n",
 							addr, b, len);
 					p->cb_printf ("\n");
 					goto beach;
@@ -2054,7 +2055,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					i += 4;
 				} else {
 					while (size--) {
-						i+=4;
+						i += 4;
 					}
 				}
 				continue;
@@ -2062,13 +2063,13 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				i += (size == -1)? 1: size;
 				continue;
 			case 'p': // pointer reference
-				if (*(arg+1) == '2') {
+				if (*(arg + 1) == '2') {
 					tmp = 'w';
 					arg++;
-				} else if (*(arg+1) == '4') {
+				} else if (*(arg + 1) == '4') {
 					tmp = 'x';
 					arg++;
-				} else if (*(arg+1) == '8') {
+				} else if (*(arg + 1) == '8') {
 					tmp = 'q';
 					arg++;
 				} else {	//If pointer reference is not mentioned explicitly
