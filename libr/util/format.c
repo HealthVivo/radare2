@@ -84,7 +84,11 @@ static void r_print_format_quadword(const RPrint* p, int endian, int mode,
 				seeki + ((elem >= 0)? elem * 2: 0));
 		}
 		if (size == -1) {
-			p->cb_printf ("0x%016"PFMT64x, addr64);
+			if ((st64)addr64 < 0 && (st64)addr64 > -4096) {
+				p->cb_printf ("%d", (int)(addr64));
+			} else {
+				p->cb_printf ("0x%016"PFMT64x, addr64);
+			}
 		} else {
 			if (!SEEVALUE) {
 				p->cb_printf ("[ ");
@@ -1184,6 +1188,7 @@ static void r_print_format_nulltermstring(const RPrint* p, const int len, int en
 		if (!SEEVALUE && !ISQUIET) {
 			p->cb_printf ("0x%08" PFMT64x " = ", seeki);
 		}
+		p->cb_printf ("\"");
 		for (; j < len && ((size == -1 || size-- > 0) && buf[j]) ; j++) {
 			if (IS_PRINTABLE (buf[j])) {
 				p->cb_printf ("%c", buf[j]);
@@ -1191,6 +1196,7 @@ static void r_print_format_nulltermstring(const RPrint* p, const int len, int en
 				p->cb_printf (".");
 			}
 		}
+		p->cb_printf ("\"");
 	} else if (MUSTSEEJSON) {
 		char * utf_encoded_buf = NULL;
 		p->cb_printf ("%d,\"string\":\"", seeki);
@@ -1918,8 +1924,10 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 			if (mode && !args) {
 				mode |= R_PRINT_ISFIELD;
 			}
-			if (mode & R_PRINT_MUSTSEE && otimes > 1) {
-				p->cb_printf ("  ");
+			if (!(mode & R_PRINT_QUIET)) {
+				if (mode & R_PRINT_MUSTSEE && otimes > 1) {
+					p->cb_printf ("  ");
+				}
 			}
 			if (idx < nargs && tmp != 'e' && isptr == 0) {
 				char *dot = NULL, *bracket = NULL;
@@ -1964,7 +1972,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 						goto beach;
 					}
 					*end = '\0';
-					elem = r_num_math (NULL, bracket+1)+1; // +1 to handle 0 index easily
+					elem = r_num_math (NULL, bracket + 1) + 1; // +1 to handle 0 index easily
 					for ( ; bracket < end; bracket++) {
 						*bracket = '\0';
 					}
@@ -1975,7 +1983,9 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				if (tmp != '.' && tmp != ':') {
 					idx++;
 					if (MUSTSEE && !SEEVALUE) {
-						p->cb_printf (namefmt, fieldname);
+						if (!ISQUIET) {
+							p->cb_printf (namefmt, fieldname);
+						}
 					}
 				}
 			}
@@ -2240,7 +2250,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				case 'z': // zero terminated string
 					r_print_format_nulltermstring (p, len, endian, mode, setval, seeki, buf, i, size);
 					if (size == -1) {
-						i+=strlen((char*)buf+i)+1;
+						i += strlen ((char*)buf + i) + 1;
 					} else {
 						while (size--) {
 							i++;
@@ -2444,7 +2454,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				if (!end_fmt) {
 					goto beach;
 				}
-				char *next_args = strchr (end_fmt+1, ' ');
+				char *next_args = strchr (end_fmt + 1, ' ');
 				if (next_args) {
 					while (*next_args != '\0') {
 						*end_fmt++ = *next_args++;

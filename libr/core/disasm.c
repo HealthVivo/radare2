@@ -277,6 +277,7 @@ typedef struct {
 	int buf_line_begin;
 	const char *strip;
 	int maxflags;
+	int asm_types;
 } RDisasmState;
 
 static void ds_setup_print_pre(RDisasmState *ds, bool tail, bool middle);
@@ -610,6 +611,7 @@ static RDisasmState * ds_init(RCore *core) {
 	ds->show_varaccess = r_config_get_i (core->config, "asm.var.access");
 	ds->maxrefs = r_config_get_i (core->config, "asm.xrefs.max");
 	ds->maxflags = r_config_get_i (core->config, "asm.maxflags");
+	ds->asm_types = r_config_get_i (core->config, "asm.types");
 	ds->foldxrefs = r_config_get_i (core->config, "asm.xrefs.fold");
 	ds->show_lines = r_config_get_i (core->config, "asm.lines");
 	ds->show_lines_bb = ds->show_lines ? r_config_get_i (core->config, "asm.lines.bb") : false;
@@ -4220,11 +4222,13 @@ static void ds_print_bbline(RDisasmState *ds, bool force) {
 
 static void print_fcn_arg(RCore *core, const char *type, const char *name,
 			   const char *fmt, const ut64 addr,
-			   const int on_stack) {
+			   const int on_stack, const bool show_typename) {
 	//r_cons_newline ();
-	r_cons_printf ("%s", type);
-	r_core_cmdf (core, "pf %s%s %s @ 0x%08" PFMT64x,
-		(on_stack == 1) ? "*" : "", fmt, name, addr);
+	if (on_stack == 1 || show_typename) {
+		r_cons_printf ("%s", type);
+	}
+	r_core_cmdf (core, "pf%s %s %s @ 0x%08" PFMT64x,
+		(on_stack == 1) ? "*" : (show_typename?"": "q"), fmt, name, addr);
 	r_cons_chop ();
 	r_cons_chop ();
 }
@@ -4387,6 +4391,9 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 				key = resolve_fcn_name (core->anal, fcn_name);
 			}
 			if (key) {
+				if (ds->asm_types == 0) {
+					break;
+				}
 				const char *fcn_type = r_type_func_ret (core->anal->sdb_types, key);
 				int nargs = r_type_func_args_count (core->anal->sdb_types, key);
 				// remove other comments
@@ -4428,9 +4435,8 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 						}
 						ds_comment_middle (ds, nextele?", ":")");
 					} else {
-						//print_fcn_arg may need ds_comment_esil
-						print_fcn_arg (core, arg->orig_c_type,
-								arg->name, arg->fmt, arg->src, on_stack);
+						// TODO: may need ds_comment_esil
+						print_fcn_arg (core, arg->orig_c_type, arg->name, arg->fmt, arg->src, on_stack, ds->asm_types == 2);
 						ds_comment_middle (ds, nextele?", ":")");
 					}
 				}
