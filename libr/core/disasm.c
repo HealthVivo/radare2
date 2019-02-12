@@ -4222,14 +4222,14 @@ static void ds_print_bbline(RDisasmState *ds, bool force) {
 
 static void print_fcn_arg(RCore *core, const char *type, const char *name,
 			   const char *fmt, const ut64 addr,
-			   const int on_stack, const bool show_typename) {
+			   const int on_stack, int asm_types) {
 	//r_cons_newline ();
-	if (on_stack == 1 || show_typename) {
+	if (on_stack == 1 && asm_types > 1) {
 		r_cons_printf ("%s", type);
 	}
 	if (addr != UT32_MAX && addr != UT64_MAX  && addr != 0) {
 		r_core_cmdf (core, "pf%s %s %s @ 0x%08" PFMT64x,
-				(on_stack == 1) ? "*" : (show_typename?"": "q"), fmt, name, addr);
+				(on_stack == 1) ? "*" : (asm_types == 2?"": "q"), fmt, name, addr);
 	} else {
 		r_cons_printf ("-1");
 	}
@@ -4395,7 +4395,7 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 				key = resolve_fcn_name (core->anal, fcn_name);
 			}
 			if (key) {
-				if (ds->asm_types == 0) {
+				if (ds->asm_types < 1) {
 					break;
 				}
 				const char *fcn_type = r_type_func_ret (core->anal->sdb_types, key);
@@ -4427,20 +4427,26 @@ static void ds_print_esil_anal(RDisasmState *ds) {
 						on_stack = true;
 					}
 					if (!arg->size) {
-						ds_comment_middle (ds, "%s: unk_size", arg->c_type);
+						if (ds->asm_types == 2) {
+							ds_comment_middle (ds, "%s: unk_size", arg->c_type);
+						}
 						warning = true;
 					}
 					nextele = r_list_iter_get_next (iter);
 					if (!arg->fmt) {
-						if (!warning) {
-							ds_comment_middle (ds, "%s : unk_format", arg->c_type);
+						if (ds->asm_types > 1) {
+							if (!warning) {
+								ds_comment_middle (ds, "%s : unk_format", arg->c_type);
+							} else {
+								ds_comment_middle (ds, "_format");
+							}
 						} else {
-							ds_comment_middle (ds, "_format");
+							ds_comment_middle (ds, "?");
 						}
 						ds_comment_middle (ds, nextele?", ":")");
 					} else {
 						// TODO: may need ds_comment_esil
-						print_fcn_arg (core, arg->orig_c_type, arg->name, arg->fmt, arg->src, on_stack, ds->asm_types == 2);
+						print_fcn_arg (core, arg->orig_c_type, arg->name, arg->fmt, arg->src, on_stack, ds->asm_types);
 						ds_comment_middle (ds, nextele?", ":")");
 					}
 				}
